@@ -7,3 +7,4 @@ python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 cryptography==42.0.7
 python-dotenv==1.0.1
+requests==2.31.0
