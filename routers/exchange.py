@@ -98,20 +98,27 @@ def disconnect_exchange(
 def _verify_weex_keys(api_key: str, api_secret: str, passphrase: str) -> bool:
     """
     Attempt a read-only balance fetch from WEEX to verify the keys work.
+    Uses the same HMAC-SHA256 + Base64 auth method as the bot's weex_client.py.
     Returns True if the call succeeds, False otherwise.
     """
     try:
         import hmac
         import hashlib
+        import base64
         import time
 
         timestamp = str(int(time.time() * 1000))
         method    = "GET"
-        path      = "/api/v1/account/balance"
+        path      = "/api/v2/account/assets"
         message   = timestamp + method + path
-        signature = hmac.new(
-            api_secret.encode(), message.encode(), hashlib.sha256
-        ).hexdigest()
+
+        signature = base64.b64encode(
+            hmac.new(
+                api_secret.encode("utf-8"),
+                message.encode("utf-8"),
+                digestmod=hashlib.sha256,
+            ).digest()
+        ).decode()
 
         headers = {
             "ACCESS-KEY":        api_key,
@@ -121,7 +128,7 @@ def _verify_weex_keys(api_key: str, api_secret: str, passphrase: str) -> bool:
             "Content-Type":      "application/json",
         }
         resp = requests.get(
-            "https://api.weex.com" + path,
+            "https://api-spot.weex.com" + path,
             headers=headers,
             timeout=10,
         )
