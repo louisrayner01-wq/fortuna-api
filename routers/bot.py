@@ -94,6 +94,20 @@ def update_config(
     return {"status": "updated", "capital_amount": config.capital_amount}
 
 
+@router.post("/activate-beta", dependencies=[Depends(_require_bot_engine)])
+def activate_beta(user_id: str, db: Session = Depends(get_db)):
+    """Manually activate a user's subscription for beta testing."""
+    sub = db.query(Subscription).filter(
+        Subscription.user_id == uuid.UUID(user_id)
+    ).first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    sub.status = "active"
+    sub.plan   = "pro"
+    db.commit()
+    return {"status": "activated", "user_id": user_id}
+
+
 @router.get("/status")
 def bot_status(
     current_user: User = Depends(get_current_user),
