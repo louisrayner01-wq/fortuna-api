@@ -105,6 +105,62 @@ def get_my_trades(
     ]
 
 
+@router.get("/pnl-chart")
+def get_pnl_chart(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    from collections import defaultdict
+    from datetime import datetime, timezone
+
+    trades = (
+        db.query(Trade)
+        .filter(Trade.user_id == current_user.id, Trade.pnl_usdt.isnot(None))
+        .order_by(Trade.opened_at.asc())
+        .all()
+    )
+
+    daily   = defaultdict(lambda: {"pnl": 0.0, "trades": 0})
+    weekly  = defaultdict(lambda: {"pnl": 0.0, "trades": 0})
+    monthly = defaultdict(lambda: {"pnl": 0.0, "trades": 0})
+    equity_series = []
+
+    for t in trades:
+        ts = t.opened_at
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+
+        day_key   = ts.strftime("%Y-%m-%d")
+        # ISO week: e.g. "2025-W22"
+        week_key  = ts.strftime("%Y-W%W")
+        month_key = ts.strftime("%Y-%m")
+
+        daily[day_key]["pnl"]    += t.pnl_usdt
+        daily[day_key]["trades"] += 1
+
+        weekly[week_key]["pnl"]    += t.pnl_usdt
+        weekly[week_key]["trades"] += 1
+
+        monthly[month_key]["pnl"]    += t.pnl_usdt
+        monthly[month_key]["trades"] += 1
+
+        if t.equity_after is not None:
+            equity_series.append({"date": day_key, "equity": round(t.equity_after, 2)})
+
+    def sorted_list(d, key_field="date"):
+        return [
+            {key_field: k, "pnl": round(v["pnl"], 2), "trades": v["trades"]}
+            for k, v in sorted(d.items())
+        ]
+
+    return {
+        "daily":         sorted_list(daily),
+        "weekly":        sorted_list(weekly,  key_field="week"),
+        "monthly":       sorted_list(monthly, key_field="month"),
+        "equity_series": equity_series,
+    }
+
+
 @router.get("/summary")
 def get_summary(
     current_user: User = Depends(get_current_user),
