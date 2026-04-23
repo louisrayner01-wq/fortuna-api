@@ -3,9 +3,15 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from database import engine, Base
 from routers import users, exchange, bot, trades, admin
+from sqlalchemy import text
 
 # Create all tables on startup
 Base.metadata.create_all(bind=engine)
+
+# Add any missing columns that were added after initial deployment
+with engine.connect() as conn:
+    conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE"))
+    conn.commit()
 
 app = FastAPI(title="Fortuna API", version="0.1.0")
 
