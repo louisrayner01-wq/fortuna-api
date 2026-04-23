@@ -90,6 +90,25 @@ def list_users(
 
 # ── Grant / revoke free access ────────────────────────────────────────────────
 
+@router.post("/grant-by-email")
+def grant_by_email(
+    body: dict,
+    _: User = Depends(get_admin_user),
+    db: Session = Depends(get_db),
+):
+    email = body.get("email", "").strip().lower()
+    user  = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail=f"No account found for {email}")
+    sub = user.subscription
+    if not sub:
+        raise HTTPException(status_code=404, detail="User has no subscription record")
+    sub.status = "active"
+    sub.plan   = "pro"
+    db.commit()
+    return {"status": "access granted", "email": email, "user_id": str(user.id)}
+
+
 @router.post("/users/{user_id}/grant-access")
 def grant_access(
     user_id: str,
