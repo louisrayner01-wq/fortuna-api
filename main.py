@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import engine, Base
-from routers import users, exchange, bot, trades
+from routers import users, exchange, bot, trades, admin
 
 # Create all tables on startup
 Base.metadata.create_all(bind=engine)
@@ -20,6 +20,7 @@ app.include_router(users.router)
 app.include_router(exchange.router)
 app.include_router(bot.router)
 app.include_router(trades.router)
+app.include_router(admin.router)
 
 
 @app.get("/health")
