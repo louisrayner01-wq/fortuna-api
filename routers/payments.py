@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 
 from database import get_db
-from models import User, Subscription
+from models import User, Subscription, AffiliateReferral, AffiliateEarning
 from routers.users import get_current_user
 
 router = APIRouter(prefix="/api/payments", tags=["payments"])
@@ -129,10 +129,13 @@ async def stripe_webhook(
     elif etype == "invoice.payment_succeeded":
         stripe_sub_id = data.get("subscription")
         customer_id   = data.get("customer")
+        invoice_id    = data.get("id")
+        amount_paid   = data.get("amount_paid", 0) / 100   # pence → pounds
         if stripe_sub_id:
             user = db.query(User).filter(User.stripe_customer_id == customer_id).first()
             if user:
                 _activate_subscription(db, user, stripe_sub_id, "active")
+                _record_affiliate_commission(db, user, invoice_id, amount_paid)
 
     # ── Payment failed ────────────────────────────────────────────────────────
     elif etype == "invoice.payment_failed":
@@ -162,6 +165,35 @@ def _activate_subscription(db: Session, user: User, stripe_sub_id: str, status: 
     sub.stripe_sub_id = stripe_sub_id
     sub.status        = status
     sub.plan          = "pro"
+    db.commit()
+
+
+def _record_affiliate_commission(db: Session, user: User, invoice_id: str, amount_gbp: float):
+    """If this user was referred by an affiliate, record their commission."""
+    if not user.referred_by_code:
+        return
+    # Avoid double-counting the same invoice
+    if db.query(AffiliateEarning).filter(AffiliateEarning.stripe_invoice_id == invoice_id).first():
+        return
+    ref = db.query(AffiliateReferral).filter(AffiliateReferral.user_id == user.id).first()
+    if not ref:
+        return
+    aff = ref.affiliate
+    if not aff or aff.status != "active":
+        return
+
+    commission = round(amount_gbp * aff.commission_rate, 2)
+    db.add(AffiliateEarning(
+        affiliate_id      = aff.id,
+        referral_id       = ref.id,
+        stripe_invoice_id = invoice_id,
+        amount_gbp        = amount_gbp,
+        commission_gbp    = commission,
+        status            = "pending",
+    ))
+    # Mark referral as converted on first payment
+    if not ref.converted:
+        ref.converted = True
     db.commit()
 
 

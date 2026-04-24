@@ -9,7 +9,7 @@ from pydantic import BaseModel, EmailStr
 import uuid
 
 from database import get_db
-from models import User, Subscription, BotConfig
+from models import User, Subscription, BotConfig, Affiliate, AffiliateReferral
 from auth import hash_password, verify_password, create_token, decode_token
 
 router  = APIRouter(prefix="/api/users", tags=["users"])
@@ -21,6 +21,7 @@ bearer  = HTTPBearer()
 class RegisterRequest(BaseModel):
     email:    EmailStr
     password: str
+    ref_code: str = ""   # optional affiliate referral code
 
 class LoginRequest(BaseModel):
     email:    EmailStr
@@ -53,13 +54,28 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == body.email).first():
         raise HTTPException(status_code=409, detail="Email already registered")
 
-    user = User(email=body.email, password_hash=hash_password(body.password))
+    ref_code = body.ref_code.strip().upper() if body.ref_code else None
+    user = User(
+        email           = body.email,
+        password_hash   = hash_password(body.password),
+        referred_by_code = ref_code,
+    )
     db.add(user)
     db.flush()
 
     # Create empty subscription + bot config rows for this user
     db.add(Subscription(user_id=user.id))
     db.add(BotConfig(user_id=user.id))
+
+    # Record affiliate referral if a valid active affiliate code was used
+    if ref_code:
+        aff = db.query(Affiliate).filter(
+            Affiliate.code == ref_code,
+            Affiliate.status == "active",
+        ).first()
+        if aff:
+            db.add(AffiliateReferral(affiliate_id=aff.id, user_id=user.id))
+
     db.commit()
     db.refresh(user)
 

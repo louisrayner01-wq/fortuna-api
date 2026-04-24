@@ -6,6 +6,7 @@ import uuid
 from database import Base
 
 
+
 class User(Base):
     __tablename__ = "users"
 
@@ -15,6 +16,7 @@ class User(Base):
     stripe_customer_id = Column(String, nullable=True)
     is_active          = Column(Boolean, default=True)
     is_admin           = Column(Boolean, default=False)
+    referred_by_code   = Column(String, nullable=True)   # affiliate code used at signup
     created_at         = Column(DateTime(timezone=True), server_default=func.now())
 
     subscription  = relationship("Subscription",  back_populates="user", uselist=False)
@@ -89,3 +91,54 @@ class Trade(Base):
     opened_at    = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="trades")
+
+
+# ── Affiliate tables ───────────────────────────────────────────────────────────
+
+class Affiliate(Base):
+    __tablename__ = "affiliates"
+
+    id              = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name            = Column(String, nullable=False)
+    email           = Column(String, unique=True, nullable=False, index=True)
+    password_hash   = Column(String, nullable=False)
+    code            = Column(String, unique=True, nullable=False, index=True)  # e.g. "JOHN42"
+    commission_rate = Column(Float, default=0.20)   # 20 % of each payment
+    payout_email    = Column(String, nullable=True)  # PayPal / bank details for payouts
+    status          = Column(String, default="pending")  # pending | active | suspended
+    created_at      = Column(DateTime(timezone=True), server_default=func.now())
+
+    referrals = relationship("AffiliateReferral", back_populates="affiliate")
+    earnings  = relationship("AffiliateEarning",  back_populates="affiliate")
+
+
+class AffiliateReferral(Base):
+    """One row per user who signed up via an affiliate link."""
+    __tablename__ = "affiliate_referrals"
+
+    id           = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    affiliate_id = Column(UUID(as_uuid=True), ForeignKey("affiliates.id"), nullable=False)
+    user_id      = Column(UUID(as_uuid=True), ForeignKey("users.id"),      nullable=False)
+    converted    = Column(Boolean, default=False)  # True once they make their first payment
+    created_at   = Column(DateTime(timezone=True), server_default=func.now())
+
+    affiliate = relationship("Affiliate", back_populates="referrals")
+    user      = relationship("User")
+    earnings  = relationship("AffiliateEarning", back_populates="referral")
+
+
+class AffiliateEarning(Base):
+    """One row per Stripe payment made by a referred user."""
+    __tablename__ = "affiliate_earnings"
+
+    id                = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    affiliate_id      = Column(UUID(as_uuid=True), ForeignKey("affiliates.id"),        nullable=False)
+    referral_id       = Column(UUID(as_uuid=True), ForeignKey("affiliate_referrals.id"), nullable=False)
+    stripe_invoice_id = Column(String, nullable=True, unique=True)
+    amount_gbp        = Column(Float, nullable=False)   # what the user paid (£)
+    commission_gbp    = Column(Float, nullable=False)   # affiliate's cut (£)
+    status            = Column(String, default="pending")  # pending | paid
+    created_at        = Column(DateTime(timezone=True), server_default=func.now())
+
+    affiliate = relationship("Affiliate", back_populates="earnings")
+    referral  = relationship("AffiliateReferral", back_populates="earnings")
