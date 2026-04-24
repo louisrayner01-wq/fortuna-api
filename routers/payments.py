@@ -52,7 +52,7 @@ def create_checkout(
         line_items=[{"price": PRICE_ID, "quantity": 1}],
         mode="subscription",
         subscription_data={"trial_period_days": 30},
-        success_url=f"{WEB_URL}/dashboard?subscribed=1",
+        success_url=f"{WEB_URL}/connect",
         cancel_url=f"{WEB_URL}/subscribe?cancelled=1",
         allow_promotion_codes=True,
     )
