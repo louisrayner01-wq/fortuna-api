@@ -19,9 +19,10 @@ bearer  = HTTPBearer()
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
 class RegisterRequest(BaseModel):
+    name:     str
     email:    EmailStr
     password: str
-    ref_code: str = ""   # optional affiliate referral code
+    ref_code: str = ""
 
 class LoginRequest(BaseModel):
     email:    EmailStr
@@ -56,8 +57,9 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
 
     ref_code = body.ref_code.strip().upper() if body.ref_code else None
     user = User(
-        email           = body.email,
-        password_hash   = hash_password(body.password),
+        name             = body.name.strip(),
+        email            = body.email,
+        password_hash    = hash_password(body.password),
         referred_by_code = ref_code,
     )
     db.add(user)
@@ -96,6 +98,7 @@ def get_me(current_user: User = Depends(get_current_user), db: Session = Depends
     sub    = current_user.subscription
     return {
         "id":             str(current_user.id),
+        "name":           current_user.name,
         "email":          current_user.email,
         "created_at":     current_user.created_at,
         "subscription": {
