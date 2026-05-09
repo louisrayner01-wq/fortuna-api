@@ -2,15 +2,23 @@
 User registration, login, and profile.
 """
 
+import os
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
+from jose import jwt, JWTError
 import uuid
 
 from database import get_db
 from models import User, Subscription, BotConfig, Affiliate, AffiliateReferral
-from auth import hash_password, verify_password, create_token, decode_token
+from auth import hash_password, verify_password, create_token, decode_token, SECRET_KEY, ALGORITHM
+
+WEB_URL        = os.environ.get("WEB_URL", "https://fortuna-web-one.vercel.app")
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+FROM_EMAIL     = os.environ.get("RESEND_FROM_EMAIL", "noreply@fortuna.app")
 
 router  = APIRouter(prefix="/api/users", tags=["users"])
 bearer  = HTTPBearer()
@@ -26,6 +34,13 @@ class RegisterRequest(BaseModel):
 
 class LoginRequest(BaseModel):
     email:    EmailStr
+    password: str
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    token:    str
     password: str
 
 class TokenResponse(BaseModel):
@@ -112,3 +127,58 @@ def get_me(current_user: User = Depends(get_current_user), db: Session = Depends
             "hwm":           config.hwm            if config else None,
         },
     }
+
+
+@router.post("/forgot-password")
+def forgot_password(body: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == body.email).first()
+    if user:
+        expire = datetime.now(timezone.utc) + timedelta(hours=1)
+        token  = jwt.encode(
+            {"sub": str(user.id), "purpose": "reset", "exp": expire},
+            SECRET_KEY, algorithm=ALGORITHM,
+        )
+        reset_url = f"{WEB_URL}/reset-password?token={token}"
+
+        if RESEND_API_KEY:
+            import resend
+            resend.api_key = RESEND_API_KEY
+            resend.Emails.send({
+                "from":    FROM_EMAIL,
+                "to":      [user.email],
+                "subject": "Reset your Fortuna password",
+                "html":    f"""
+                    <p>Hi,</p>
+                    <p>Click the link below to reset your password. This link expires in 1 hour.</p>
+                    <p><a href="{reset_url}">{reset_url}</a></p>
+                    <p>If you didn't request this, ignore this email.</p>
+                """,
+            })
+        else:
+            import logging
+            logging.getLogger(__name__).info("RESET LINK (no email provider): %s", reset_url)
+
+    # Always return success so we don't leak whether an email exists
+    return {"message": "If that email is registered you'll receive a reset link shortly."}
+
+
+@router.post("/reset-password")
+def reset_password(body: ResetPasswordRequest, db: Session = Depends(get_db)):
+    try:
+        payload = jwt.decode(body.token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("purpose") != "reset":
+            raise ValueError
+        user_id = payload.get("sub")
+    except (JWTError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link")
+
+    user = db.query(User).filter(User.id == uuid.UUID(user_id)).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link")
+
+    if len(body.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
+    user.password_hash = hash_password(body.password)
+    db.commit()
+    return {"message": "Password updated successfully"}

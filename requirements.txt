@@ -10,3 +10,4 @@ cryptography==42.0.7
 python-dotenv==1.0.1
 requests==2.31.0
 stripe==9.9.0
+resend==2.2.0
