@@ -77,6 +77,7 @@ class AffiliateRegister(BaseModel):
     name:         str
     email:        EmailStr
     password:     str
+    code:         Optional[str] = None   # custom referral code chosen by the affiliate
     payout_email: Optional[str] = None
 
 class AffiliateLogin(BaseModel):
@@ -94,7 +95,16 @@ def affiliate_register(body: AffiliateRegister, db: Session = Depends(get_db)):
     if db.query(Affiliate).filter(Affiliate.email == body.email).first():
         raise HTTPException(status_code=409, detail="Email already registered")
 
-    code = _gen_code(body.name, db)
+    if body.code:
+        raw = body.code.strip().upper()
+        if not raw.replace("-", "").replace("_", "").isalnum() or not (3 <= len(raw) <= 20):
+            raise HTTPException(status_code=400, detail="Code must be 3–20 characters, letters and numbers only")
+        if db.query(Affiliate).filter(Affiliate.code == raw).first():
+            raise HTTPException(status_code=409, detail="That code is already taken — please choose another")
+        code = raw
+    else:
+        code = _gen_code(body.name, db)
+
     aff  = Affiliate(
         name          = body.name,
         email         = body.email,

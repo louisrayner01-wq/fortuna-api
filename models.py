@@ -103,7 +103,7 @@ class Affiliate(Base):
     email           = Column(String, unique=True, nullable=False, index=True)
     password_hash   = Column(String, nullable=False)
     code            = Column(String, unique=True, nullable=False, index=True)  # e.g. "JOHN42"
-    commission_rate = Column(Float, default=0.20)   # 20 % of each payment
+    commission_rate = Column(Float, default=0.50)   # 50 % of each payment
     payout_email    = Column(String, nullable=True)  # PayPal / bank details for payouts
     status          = Column(String, default="pending")  # pending | active | suspended
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
