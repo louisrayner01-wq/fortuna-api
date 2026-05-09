@@ -141,19 +141,23 @@ def forgot_password(body: ForgotPasswordRequest, db: Session = Depends(get_db)):
         reset_url = f"{WEB_URL}/reset-password?token={token}"
 
         if RESEND_API_KEY:
-            import resend
-            resend.api_key = RESEND_API_KEY
-            resend.Emails.send({
-                "from":    FROM_EMAIL,
-                "to":      [user.email],
-                "subject": "Reset your Fortuna password",
-                "html":    f"""
-                    <p>Hi,</p>
-                    <p>Click the link below to reset your password. This link expires in 1 hour.</p>
-                    <p><a href="{reset_url}">{reset_url}</a></p>
-                    <p>If you didn't request this, ignore this email.</p>
-                """,
-            })
+            try:
+                import resend
+                resend.api_key = RESEND_API_KEY
+                resend.Emails.send({
+                    "from":    FROM_EMAIL,
+                    "to":      [user.email],
+                    "subject": "Reset your Fortuna password",
+                    "html":    f"""
+                        <p>Hi,</p>
+                        <p>Click the link below to reset your password. This link expires in 1 hour.</p>
+                        <p><a href="{reset_url}">{reset_url}</a></p>
+                        <p>If you didn't request this, ignore this email.</p>
+                    """,
+                })
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error("Email send failed: %s — RESET LINK: %s", e, reset_url)
         else:
             import logging
             logging.getLogger(__name__).info("RESET LINK (no email provider): %s", reset_url)
