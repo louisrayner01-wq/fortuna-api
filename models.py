@@ -48,6 +48,11 @@ class BotConfig(Base):
     is_active       = Column(Boolean, default=False)
     equity          = Column(Float, nullable=True)        # live equity, updated by bot
     hwm             = Column(Float, nullable=True)        # high-water mark, updated by bot
+    # ── Rule-based strategy selection (used by bot_rules.py) ──────────────────
+    # strategy_mode: conservative | balanced | aggressive
+    # risk_per_trade: 0.005 – 0.02 (0.5% – 2% of equity)
+    strategy_mode   = Column(String, default="conservative")
+    risk_per_trade  = Column(Float,  default=0.01)
     updated_at      = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
     user = relationship("User", back_populates="bot_config")

@@ -29,8 +29,16 @@ def _require_bot_engine(x_bot_secret: str = Header(...)):
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
+VALID_STRATEGY_MODES = {"conservative", "balanced", "aggressive"}
+MIN_RISK_PER_TRADE   = 0.005
+MAX_RISK_PER_TRADE   = 0.02
+
+
 class BotConfigUpdate(BaseModel):
     capital_amount: Optional[float] = None
+    strategy_mode:  Optional[str]   = None
+    risk_per_trade: Optional[float] = None
+
 
 class EquityUpdate(BaseModel):
     equity: float
@@ -90,8 +98,31 @@ def update_config(
             raise HTTPException(status_code=400, detail="Minimum capital is $10")
         config.capital_amount = body.capital_amount
 
+    if body.strategy_mode is not None:
+        mode = body.strategy_mode.strip().lower()
+        if mode not in VALID_STRATEGY_MODES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid strategy. Choose from: {', '.join(sorted(VALID_STRATEGY_MODES))}",
+            )
+        config.strategy_mode = mode
+
+    if body.risk_per_trade is not None:
+        if not (MIN_RISK_PER_TRADE <= body.risk_per_trade <= MAX_RISK_PER_TRADE):
+            raise HTTPException(
+                status_code=400,
+                detail=(f"Risk per trade must be between "
+                        f"{MIN_RISK_PER_TRADE*100:.1f}% and {MAX_RISK_PER_TRADE*100:.1f}%"),
+            )
+        config.risk_per_trade = body.risk_per_trade
+
     db.commit()
-    return {"status": "updated", "capital_amount": config.capital_amount}
+    return {
+        "status":         "updated",
+        "capital_amount": config.capital_amount,
+        "strategy_mode":  config.strategy_mode,
+        "risk_per_trade": config.risk_per_trade,
+    }
 
 
 @router.post("/activate-beta", dependencies=[Depends(_require_bot_engine)])
@@ -115,10 +146,12 @@ def bot_status(
 ):
     config = current_user.bot_config
     return {
-        "is_active":    config.is_active     if config else False,
-        "capital":      config.capital_amount if config else None,
-        "equity":       config.equity         if config else None,
-        "hwm":          config.hwm            if config else None,
+        "is_active":      config.is_active           if config else False,
+        "capital":        config.capital_amount      if config else None,
+        "equity":         config.equity              if config else None,
+        "hwm":            config.hwm                 if config else None,
+        "strategy_mode":  config.strategy_mode       if config else "conservative",
+        "risk_per_trade": config.risk_per_trade      if config else 0.01,
     }
 
 
@@ -140,7 +173,12 @@ def get_active_users(db: Session = Depends(get_db)):
         )
         .all()
     )
-    return [{"user_id": str(c.user_id), "capital": c.capital_amount} for c in configs]
+    return [{
+        "user_id":        str(c.user_id),
+        "capital":        c.capital_amount,
+        "strategy_mode":  c.strategy_mode  or "conservative",
+        "risk_per_trade": c.risk_per_trade if c.risk_per_trade is not None else 0.01,
+    } for c in configs]
 
 
 @router.get("/internal/user-config/{user_id}", dependencies=[Depends(_require_bot_engine)])
@@ -158,11 +196,13 @@ def get_user_config(user_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="User config not found")
 
     return {
-        "user_id":    user_id,
-        "capital":    config.capital_amount,
-        "api_key":    decrypt(keys.api_key_encrypted),
-        "api_secret": decrypt(keys.api_secret_encrypted),
-        "passphrase": decrypt(keys.passphrase_encrypted) if keys.passphrase_encrypted else "",
+        "user_id":        user_id,
+        "capital":        config.capital_amount,
+        "api_key":        decrypt(keys.api_key_encrypted),
+        "api_secret":     decrypt(keys.api_secret_encrypted),
+        "passphrase":     decrypt(keys.passphrase_encrypted) if keys.passphrase_encrypted else "",
+        "strategy_mode":  config.strategy_mode  or "conservative",
+        "risk_per_trade": config.risk_per_trade if config.risk_per_trade is not None else 0.01,
     }
 
 

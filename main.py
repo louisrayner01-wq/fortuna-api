@@ -13,6 +13,9 @@ with engine.connect() as conn:
     conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE"))
     conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by_code VARCHAR"))
     conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS name VARCHAR"))
+    # Rule-based strategy selection — added with the Conservative/Balanced/Aggressive launch
+    conn.execute(text("ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS strategy_mode VARCHAR DEFAULT 'conservative'"))
+    conn.execute(text("ALTER TABLE bot_configs ADD COLUMN IF NOT EXISTS risk_per_trade DOUBLE PRECISION DEFAULT 0.01"))
     conn.commit()
 
 app = FastAPI(title="Fortuna API", version="0.1.0")

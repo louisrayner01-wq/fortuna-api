@@ -121,10 +121,12 @@ def get_me(current_user: User = Depends(get_current_user), db: Session = Depends
             "plan":   sub.plan   if sub else None,
         },
         "bot": {
-            "is_active":     config.is_active     if config else False,
-            "capital":       config.capital_amount if config else None,
-            "equity":        config.equity         if config else None,
-            "hwm":           config.hwm            if config else None,
+            "is_active":      config.is_active           if config else False,
+            "capital":        config.capital_amount      if config else None,
+            "equity":         config.equity              if config else None,
+            "hwm":            config.hwm                 if config else None,
+            "strategy_mode":  (config.strategy_mode or "conservative") if config else "conservative",
+            "risk_per_trade": (config.risk_per_trade if config and config.risk_per_trade is not None else 0.01),
         },
     }
 
