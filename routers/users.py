@@ -13,7 +13,7 @@ from jose import jwt, JWTError
 import uuid
 
 from database import get_db
-from models import User, Subscription, BotConfig, Affiliate, AffiliateReferral
+from models import User, Subscription, BotConfig, Affiliate, AffiliateReferral, STRATEGY_FAMILIES
 from auth import hash_password, verify_password, create_token, decode_token, SECRET_KEY, ALGORITHM
 
 WEB_URL        = os.environ.get("WEB_URL", "https://fortuna-web-one.vercel.app")
@@ -80,9 +80,11 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
     db.add(user)
     db.flush()
 
-    # Create empty subscription + bot config rows for this user
+    # Create empty subscription + strat_1 bot config for this user.
+    # Portfolio-family config is lazy-created the first time the user opens
+    # or acts on it, so we don't create rows the user may never use.
     db.add(Subscription(user_id=user.id))
-    db.add(BotConfig(user_id=user.id))
+    db.add(BotConfig(user_id=user.id, strategy_family="strat_1"))
 
     # Record affiliate referral if a valid active affiliate code was used
     if ref_code:
@@ -107,10 +109,33 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
     return TokenResponse(token=create_token(str(user.id)), user_id=str(user.id))
 
 
+def _serialize_config(cfg: BotConfig | None) -> dict:
+    """Convert one BotConfig row to the dict shape the dashboard expects.
+    Returns sensible defaults for a family the user hasn't touched yet."""
+    if cfg is None:
+        return {
+            "is_active":      False,
+            "capital":        100.0,
+            "equity":         None,
+            "hwm":            None,
+            "strategy_mode":  "conservative",
+            "risk_per_trade": 0.01,
+        }
+    return {
+        "is_active":      cfg.is_active,
+        "capital":        cfg.capital_amount,
+        "equity":         cfg.equity,
+        "hwm":            cfg.hwm,
+        "strategy_mode":  cfg.strategy_mode or "conservative",
+        "risk_per_trade": cfg.risk_per_trade if cfg.risk_per_trade is not None else 0.01,
+    }
+
+
 @router.get("/me")
 def get_me(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    config = current_user.bot_config
-    sub    = current_user.subscription
+    sub = current_user.subscription
+    by_family = {cfg.strategy_family: cfg for cfg in current_user.bot_configs}
+    families = {fam: _serialize_config(by_family.get(fam)) for fam in STRATEGY_FAMILIES}
     return {
         "id":             str(current_user.id),
         "name":           current_user.name,
@@ -120,14 +145,10 @@ def get_me(current_user: User = Depends(get_current_user), db: Session = Depends
             "status": sub.status if sub else "inactive",
             "plan":   sub.plan   if sub else None,
         },
-        "bot": {
-            "is_active":      config.is_active           if config else False,
-            "capital":        config.capital_amount      if config else None,
-            "equity":         config.equity              if config else None,
-            "hwm":            config.hwm                 if config else None,
-            "strategy_mode":  (config.strategy_mode or "conservative") if config else "conservative",
-            "risk_per_trade": (config.risk_per_trade if config and config.risk_per_trade is not None else 0.01),
-        },
+        # Family-scoped: dashboard picks which one to render based on the
+        # active family selector. Every family the app knows about is
+        # returned, even if the user has never opened it.
+        "bot_configs": families,
     }
 
 

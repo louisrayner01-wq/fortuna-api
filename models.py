@@ -1,9 +1,14 @@
-from sqlalchemy import Column, String, Float, Boolean, Integer, DateTime, Text, ForeignKey
+from sqlalchemy import Column, String, Float, Boolean, Integer, DateTime, Text, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
 from database import Base
+
+
+# Strategy families a user can run concurrently. Each has its own BotConfig row
+# (capital, equity, HWM, is_active, risk) and its own trades log.
+STRATEGY_FAMILIES = ("strat_1", "portfolio")
 
 
 
@@ -21,7 +26,7 @@ class User(Base):
     created_at         = Column(DateTime(timezone=True), server_default=func.now())
 
     subscription  = relationship("Subscription",  back_populates="user", uselist=False)
-    bot_config    = relationship("BotConfig",      back_populates="user", uselist=False)
+    bot_configs   = relationship("BotConfig",      back_populates="user")
     exchange_keys = relationship("ExchangeKeys",   back_populates="user", uselist=False)
     trades        = relationship("Trade",          back_populates="user")
 
@@ -41,21 +46,25 @@ class Subscription(Base):
 
 class BotConfig(Base):
     __tablename__ = "bot_configs"
+    __table_args__ = (
+        UniqueConstraint("user_id", "strategy_family", name="uq_bot_config_user_family"),
+    )
 
     id              = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id         = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, unique=True)
+    user_id         = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    strategy_family = Column(String, nullable=False, default="strat_1", index=True)
     capital_amount  = Column(Float, default=100.0)
     is_active       = Column(Boolean, default=False)
     equity          = Column(Float, nullable=True)        # live equity, updated by bot
     hwm             = Column(Float, nullable=True)        # high-water mark, updated by bot
-    # ── Rule-based strategy selection (used by bot_rules.py) ──────────────────
+    # ── strat_1 sub-mode (only used when strategy_family == "strat_1") ────────
     # strategy_mode: conservative | balanced | aggressive
     # risk_per_trade: 0.005 – 0.02 (0.5% – 2% of equity)
     strategy_mode   = Column(String, default="conservative")
     risk_per_trade  = Column(Float,  default=0.01)
     updated_at      = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
-    user = relationship("User", back_populates="bot_config")
+    user = relationship("User", back_populates="bot_configs")
 
 
 class ExchangeKeys(Base):
@@ -76,8 +85,9 @@ class ExchangeKeys(Base):
 class Trade(Base):
     __tablename__ = "trades"
 
-    id           = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id      = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    id              = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id         = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    strategy_family = Column(String, nullable=False, default="strat_1", index=True)
     pair         = Column(String, nullable=False)
     slot_key     = Column(String, nullable=True)
     side         = Column(String, nullable=False)        # long | short
